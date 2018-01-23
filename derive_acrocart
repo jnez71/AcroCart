@@ -1,0 +1,88 @@
+#!/usr/bin/python
+from __future__ import division
+from sympy import *
+from sympy.utilities.codegen import codegen
+init_printing()  # allows pretty printing
+
+# Helper function for creating groups of numbered scalars
+def scalar_group(name, total, start=0, dep=None):
+    syms = []
+    for i in xrange(start, start+total):
+        syms.append(symbols(name + str(i)))
+        if dep: syms[-1] = syms[-1](dep)
+    return syms
+
+print "Initializing symbols..."
+
+# Parameters
+ndof = 3
+g = symbols("g")
+m0, m1, m2 = m = scalar_group("m", ndof)
+b0, b1, b2 = b = scalar_group("b", ndof)
+l1, l2 = l = scalar_group("l", 2, start=1)
+params = [g] + m + b + l
+
+# Time, generalized coordinates, rates, accels, and input force
+t = symbols("t")
+q0, q1, q2 = coords = scalar_group("q", ndof, dep=t)
+qd0, qd1, qd2 = rates = map(lambda f: diff(f, t), coords)
+qdd0, qdd1, qdd2 = accels = map(lambda f: diff(f, t), rates)
+u = symbols("u")
+
+print "Evaluating system geometry..."
+
+# Geometry
+x0 = q0
+x1 = x0 + (l1/2)*sin(q1)
+x2 = x1 + (l1/2)*sin(q1) + (l2/2)*sin(q2)
+y0 = 0
+y1 = y0 - (l1/2)*cos(q1)
+y2 = y1 - (l1/2)*cos(q1) - (l2/2)*cos(q2)
+
+# Speeds
+v0 = sqrt(diff(x0, t)**2 + diff(y0, t)**2)
+v1 = sqrt(diff(x1, t)**2 + diff(y1, t)**2)
+v2 = sqrt(diff(x2, t)**2 + diff(y2, t)**2)
+w1 = diff(q1, t)
+w2 = diff(q2, t)
+
+# Inertial properties
+I1 = (m1/12)*l1**2
+I2 = (m2/12)*l2**2
+
+print "Constructing Euler-Lagrange equations..."
+
+# Lagrangian
+kinetic = (m0/2)*v0**2 + (m1/2)*v1**2 + (m2/2)*v2**2 + (I1/2)*w1**2 + (I2/2)*w2**2
+potential = m0*g*y0 + m1*g*y1 + m2*g*y2
+L = simplify(kinetic - potential)
+
+# Euler-Lagrange equations
+EL0 = collect(simplify(diff(diff(L, qd0), t) - diff(L, q0) - u + b0*qd0), accels)
+EL1 = collect(simplify(diff(diff(L, qd1), t) - diff(L, q1) + b1*qd1), accels)
+EL2 = collect(simplify(diff(diff(L, qd2), t) - diff(L, q2) + b2*qd2), accels)
+
+print "Solving Euler-Lagrange equations for state-space form..."
+
+# Solve for state-space form
+sol = solve((EL0, EL1, EL2), accels)
+
+print "Computing jacobians..."
+
+# Compute linearization of equations of motion
+EOM = Matrix([qd0,
+              qd1,
+              qd2,
+              sol[qdd0],
+              sol[qdd1],
+              sol[qdd2]])
+A = EOM.jacobian(Matrix(coords + rates))
+B = EOM.jacobian(Matrix([u]))
+
+print "----\n---- EOM"
+print EOM
+print "----\n---- A"
+print A
+print "----\n---- B"
+print B
+print "----\n----"
