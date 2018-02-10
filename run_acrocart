@@ -15,7 +15,7 @@ opt = acrocart.Optimizer(dyn, verbosity=5)
 
 # Frame problem
 q0 = [0, 0, 0, 0, 0, 0]
-qN = [1, np.pi, np.pi, 0, 0, 0]
+qN = [1, np.pi, np.pi, 0, 0, 0]  #??? since this solver doesnt do angle error on SO2, pi and -pi are different
 tN = 4
 dt = 0.01
 goal = qN[0]
@@ -25,14 +25,14 @@ rush = 0
 # Get optimal control
 opt_start_time = time.time()
 Topt, Uopt, Qopt, opt_success = opt.make_trajectory(q0, qN, tN, H, rush=rush)
-control = opt.make_controller(Topt, Uopt)  #??? THIS IS UNDER CONSTRUCTION
+control = opt.make_controller(Topt, Uopt, Qopt)
 if not opt_success: print "OPTIMIZATION FAILED"
 else: print "OPTIMIZATION SUCCEEDED"
 print "TOTAL TIME TAKEN BY OPTIMIZATION: {}".format(np.round(time.time() - opt_start_time, 3))
 print "----------------------------------------\n"
 
 # Look at ideal plan or simulate its execution?
-override = True  # True or None
+override = None  # True or None
 if override:
     print "(visualizing ideal scenario)"
     override = interp1d(Topt, Qopt, kind="quadratic", assume_sorted=True,

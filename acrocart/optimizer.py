@@ -8,7 +8,7 @@ See Optimizer class docstring for more details.
 from __future__ import division
 import numpy as np; npl = np.linalg
 from scipy.interpolate import interp1d
-from scipy.linalg import block_diag
+from scipy.linalg import block_diag, solve_continuous_are
 import ipopt
 
 
@@ -19,13 +19,15 @@ class Optimizer(object):
     IPOPT's interior-point method is used to solve the nonlinear program.
 
     dyn:       acrocart.Dynamics object
+    nom:       nominal fraction (0 to 1) of true force limits to leave room for feedback
     tol:       float nonlinear-program solver convergence tolerance
     max_iter:  integer maximum number of IPOPT iterations per optimization
     verbosity: integer (-1 to 12) for print level of IPOPT (-1 silences Optimizer too)
     
     """
-    def __init__(self, dyn, tol=1E-6, max_iter=500, verbosity=0):
+    def __init__(self, dyn, nom=0.7, tol=1E-6, max_iter=500, verbosity=0):
         self.dyn = dyn
+        self.nom = np.float64(np.clip(nom, 0, 1))
         self.tol = float(tol)
         self.max_iter = int(max_iter)
         self.verbosity = int(np.clip(verbosity, 0, 12))
@@ -39,34 +41,36 @@ class Optimizer(object):
         # IPOPT's numerical infinity
         self.inf = 2E19
 
-    def make_controller(self, T, U, kp=(0, 20, 20), kd=(0, 20, 20), band=np.deg2rad(20)): #??? THIS IS UNDER CONSTRUCTION
+    def make_controller(self, T, U, Q, Uweight=10, Qweight=np.diag([1, 1, 1, 1, 1, 1])):
         """
         Returns a function of array state, scalar time, and scalar positional-goal
-        that first linearly interpolates an open-loop input timeseries and then
-        implements a cascade balancing controller that hones the goal position.
-        If goal is None, the controller will just balance anywhere.
+        that returns an optimal control effort to track the given trajectory.
 
-        T:    array N-element time-grid in ascending order
-        U:    array N-element input timeseries
-        kp:   tuple of proportional gains for position and angle freedoms
-        kd:   tuple of derivative gains for position and angle freedoms
-        band: scalar angular band in radians about upright in which balancer takes over
+        T:       array N-element time-grid in ascending order
+        U:       array N-element input timeseries
+        Q:       array N-by-n_q state timeseries
+        Uweight: scalar effort weight in local LQR
+        Qweight: n_q by n_q array error weight in local LQR
 
         """
-        kp = np.array(kp, dtype=np.float64)
-        kd = np.array(kd, dtype=np.float64)
-        openloop = interp1d(T, U, kind="linear", assume_sorted=True, axis=0)
-        def control(q, t, goal=None):
-            if (np.abs(np.pi-q[1]) > band) and (np.abs(np.pi-q[2]) > band) and \
-               (t >= T[0]) and (t <= T[-1]):
-                return openloop(t)
-            if goal is None:
-                ref = np.pi
-            else:
-                ref = np.pi + kp[0]*(q[0] - goal) + kd[0]*q[3]
-            err1 = ref - np.mod(q[1], 2*np.pi)
-            err2 = ref - np.mod(q[2], 2*np.pi)
-            return kp[1]*err1 + kp[2]*err2 - kd[1]*q[4] - kd[2]*q[5]
+        Qw = np.float64(Qweight)
+        Uw = np.array([[Uweight]])
+        invUw = 1/Uweight
+        qgoal = np.copy(Q[-1])
+        utraj = interp1d(T, U, kind="linear", assume_sorted=True, axis=0,
+                         bounds_error=False, fill_value=0)
+        qtraj = interp1d(T, Q, kind="quadratic", assume_sorted=True, axis=0,
+                         bounds_error=False, fill_value=qgoal)
+        def qminus(ql, qr):
+            qe = ql - qr
+            qe[1:3] = np.mod(qe[1:3]+np.pi, 2*np.pi) - np.pi
+            return qe
+        def control(q, t, goal):
+            qgoal[0] = goal
+            u = utraj(t)
+            A, B = self.dyn.linearize(q, u)
+            K = invUw*B.T.dot(solve_continuous_are(A, B, Qw, Uw))
+            return u + K.dot(qminus(qtraj(t), q))
         return control
 
     def make_trajectory(self, q0, qN, tN, H, rush=0.0, plot=False):
@@ -108,9 +112,9 @@ class Optimizer(object):
 
             # Generate constraint and solution bounds
             c_eq = np.zeros((N-1)*self.dyn.n_q)
-            x_lower = np.concatenate(([self.dyn.force_lims[0]]*N, q0,
+            x_lower = np.concatenate(([self.nom*self.dyn.force_lims[0]]*N, q0,
                                       ([self.dyn.rail_lims[0]]+(self.dyn.n_q-1)*[-self.inf])*(N-2), qN))
-            x_upper = np.concatenate(([self.dyn.force_lims[1]]*N, q0,
+            x_upper = np.concatenate(([self.nom*self.dyn.force_lims[1]]*N, q0,
                                       ([self.dyn.rail_lims[1]]+(self.dyn.n_q-1)*[self.inf])*(N-2), qN))
 
             # Configure and call IPOPT
@@ -172,7 +176,7 @@ class Optimizer(object):
 
             # Analyze jacobian sparsity
             xtest = 20*(np.random.sample(len_x)-0.5)
-            self.AA[:], self.BB[:] = self.dyn.linearize(xtest[self.N:].reshape(self.N, self.n_q), xtest[:self.N].reshape(self.N, self.n_u))
+            self.AA[:], self.BB[:] = self.dyn.Linearize(xtest[self.N:].reshape(self.N, self.n_q), xtest[:self.N].reshape(self.N, self.n_u))
             self.BB_idx = self.BB.nonzero()
             self.AA_idx = self.AA.nonzero()
             self.dFdx[:] = np.hstack((block_diag(*self.BB), block_diag(*self.AA)))
@@ -225,7 +229,7 @@ class Optimizer(object):
             array of its nonzero values.
 
             """
-            self.AA[:], self.BB[:] = self.dyn.linearize(x[self.N:].reshape(self.N, self.n_q), x[:self.N].reshape(self.N, 1))
+            self.AA[:], self.BB[:] = self.dyn.Linearize(x[self.N:].reshape(self.N, self.n_q), x[:self.N].reshape(self.N, 1))
             self.dFdx[self.dFdx_Bidx] = self.BB[self.BB_idx]
             self.dFdx[:, self.N:][self.dFdx_Aidx] = self.AA[self.AA_idx]
             self.dcdx[self.dFdx_lidx] = (self.h/2)*self.dFdx[:-self.n_q][self.dFdx_lidx] + self.Q_diffarr_l
