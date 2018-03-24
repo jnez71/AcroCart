@@ -82,6 +82,7 @@ class Dynamics(object):
             twist_next = twist + dt*accel
 
         # Return next state = [pose, twist]
+        pose_next[1:3] = np.mod(pose_next[1:3]+np.pi, 2*np.pi) - np.pi  # unwrap angles onto [-pi, pi]
         return np.append(pose_next, twist_next)
 
     def f(self, q, u):

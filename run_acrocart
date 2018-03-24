@@ -40,4 +40,4 @@ if override:
 
 # Set-up simulator and run
 sim = acrocart.Simulator(dyn)
-sim.simulate(q0, control, tN=0, dt=dt, goal=goal, override=override)
+sim.simulate(q0, control, tN=0, dt=dt, goal=goal, override=override, Des=(Topt, Qopt))

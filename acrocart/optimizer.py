@@ -67,10 +67,11 @@ class Optimizer(object):
             return qe
         def control(q, t, goal):
             qgoal[0] = goal
-            u = utraj(t)
-            A, B = self.dyn.linearize(q, u)
+            q0 = qtraj(t)
+            u0 = utraj(t)
+            A, B = self.dyn.linearize(q, u0)
             K = invUw*B.T.dot(solve_continuous_are(A, B, Qw, Uw))
-            return u + K.dot(qminus(qtraj(t), q))
+            return u0 + K.dot(qminus(q0, q))
         return control
 
     def make_trajectory(self, q0, qN, tN, H, rush=0.0, plot=False):

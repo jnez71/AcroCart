@@ -20,7 +20,7 @@ class Simulator(object):
     def __init__(self, dyn):
         self.dyn = dyn
 
-    def simulate(self, q0, control, tN=0, dt=0.005, goal=None, override=None):
+    def simulate(self, q0, control, tN=0, dt=0.005, goal=None, override=None, Des=None):
         """
         Runs the simulation and displays / plots the results.
 
@@ -31,6 +31,7 @@ class Simulator(object):
         goal:     optional scalar position to be passed to control and marked as "goal" in visualizations
         override: optional function of scalar time that returns an array state that overrides
                   the actual simulation (allows you to visualize an arbitrary trajectory)
+        Des:      tuple of time and state trajectories to be plotted as desired
 
         """
         q0 = np.array(q0, dtype=np.float64)
@@ -62,19 +63,26 @@ class Simulator(object):
             # Plot results
             print "Plotting results... (close plots to continue)"
             print "----"
-            if goal is not None: pyplot.plot(T, [goal]*len(T), "k--", label="goal")
-            pyplot.plot(T, Q[:, 0], "k", label="pos")
-            pyplot.plot(T, Q[:, 1], "g", label="ang1")
-            pyplot.plot(T, Q[:, 2], "b", label="ang2")
-            pyplot.plot(T, Q[:, 3], "k--", label="vel")
-            pyplot.plot(T, Q[:, 4], "g--", label="angvel1")
-            pyplot.plot(T, Q[:, 5], "b--", label="angvel2")
-            pyplot.plot(T, U[:, 0], "r", label="input")
-            pyplot.xlim([T[0], T[-1]])
-            pyplot.legend(fontsize=16)
-            pyplot.xlabel("Time", fontsize=16)
-            pyplot.title("AcroCart Simulation", fontsize=16)
-            pyplot.grid(True)
+            fig = pyplot.figure()
+            fig.suptitle("AcroCart Simulation", fontsize=24)
+            ax = fig.add_subplot(2, 1, 1)
+            ax.plot(T, Q[:, 0], "k", label="pos")
+            ax.plot(T, Q[:, 1], "g", label="ang1")
+            ax.plot(T, Q[:, 2], "b", label="ang2")
+            if Des is not None:
+                ax.plot(Des[0], Des[1][:, 0], "k--")
+                ax.plot(Des[0], Des[1][:, 1], "g--")
+                ax.plot(Des[0], Des[1][:, 2], "b--")
+            ax.set_xlim([T[0], T[-1]])
+            ax.legend(fontsize=16)
+            ax.set_ylabel("Pose", fontsize=16)
+            ax.grid(True)
+            ax = fig.add_subplot(2, 1, 2)
+            ax.plot(T, U[:, 0], "r", label="input")
+            ax.set_xlim([T[0], T[-1]])
+            ax.set_ylabel("Input", fontsize=16)
+            ax.set_xlabel("Time", fontsize=16)
+            ax.grid(True)
             pyplot.show()  # blocking
 
         # Nonpositive tN implies realtime simulation
