@@ -108,30 +108,31 @@ class Simulator(object):
             joint2 = mlab.points3d(x1, -0.175, y1, scale_factor=0.12, color=(0, 1, 1))
             pole2 = mlab.plot3d((x1, x1+self.dyn.l2*np.sin(q0[2])), (-0.2, -0.2), (y1, y1-self.dyn.l2*np.cos(q0[2])), line_width=1, color=(1, 0, 0))
             disp = mlab.text3d(-0.6, 0, 1.2*(self.dyn.l1+self.dyn.l2), "t = 0.0", scale=0.45)
-            if goal is not None: mlab.points3d(goal, 0, -1.2*(self.dyn.l1+self.dyn.l2), scale_factor=0.2, mode="axes", color=(1, 0, 0))
+            if goal is not None: goal_viz = mlab.points3d(goal, 0, -1.2*(self.dyn.l1+self.dyn.l2), scale_factor=0.2, mode="axes", color=(1, 0, 0))
             recenter = lambda: mlab.view(azimuth=-90, elevation=90, focalpoint=(np.mean(self.dyn.rail_lims), 0, 0), distance=1.8*np.sum(np.abs(self.dyn.rail_lims)))
             recenter()
 
             # Setup user keyboard interactions
             disturb = [0.0]
+            realtime_goal = [goal]
             reset = [False]
             def keyPressEvent(event):
                 k = str(event.text())
-                if k == '.': disturb[0] += 0.5
-                elif k == ',': disturb[0] -= 0.5
-                elif k == ' ': disturb[0] = 0.0
+                if k == '.': realtime_goal[0] += 0.2
+                elif k == ',': realtime_goal[0] -= 0.2
+                elif k == ' ': realtime_goal[0] = goal
                 elif k == 'v': recenter()
                 elif k == 'r':
                     t[0] = 0.0
                     q[0] = np.copy(q0)
-                    disturb[0] = 0.0
+                    realtime_goal[0] = goal
                     print "User triggered reset!"
                     reset[0] = True
                     start_time[0] = time.time()
             fig.scene._vtk_control.keyPressEvent = keyPressEvent
             print "--\nUSER KEYBOARD CONTROLS:"
             if override is None:
-                print "Increment / decrement disturbance cart-force with '>' / '<' and cancel disturbance with ' ' (spacebar)."
+                print "Increment / decrement goal with '>' / '<' and reset goal with ' ' (spacebar)."
             print "Reset view with 'v'. Reset simulation with 'r'.\n--"
             print "(close all Mayavi windows to continue...)"
 
@@ -143,7 +144,7 @@ class Simulator(object):
                     # Simulate physics up to realtime
                     while (t[0] < time.time()-start_time[0]) and not reset[0]:
                         if override is None:
-                            q[0] = self.dyn.step(q[0], control(q[0], t[0], goal), dt, disturb[0])
+                            q[0] = self.dyn.step(q[0], control(q[0], t[0], realtime_goal[0]), dt, disturb[0])
                         else:
                             q[0] = override(t[0])
                         t[0] += dt
@@ -156,6 +157,7 @@ class Simulator(object):
                     pole1.mlab_source.set(x=(q[0][0], x1), z=(0, y1))
                     joint2.mlab_source.set(x=x1, z=y1)
                     pole2.mlab_source.set(x=(x1, x1+self.dyn.l2*np.sin(q[0][2])), z=(y1, y1-self.dyn.l2*np.cos(q[0][2])))
+                    if goal is not None: goal_viz.mlab_source.set(x=realtime_goal[0])
                     disp.text = "t = " + str(np.round(t[0], 1))
                     yield
 
